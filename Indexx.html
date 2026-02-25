@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Pro | Custom Grids</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', system-ui, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 10px;
+        }
+
+        .header { text-align: center; margin-bottom: 10px; }
+        h1 { margin: 5px 0; font-size: 1.6rem; color: var(--primary); font-weight: 800; }
+
+        .level-selector {
+            display: flex;
+            background: #e2e8f0;
+            padding: 4px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+        }
+
+        .level-btn {
+            padding: 6px 12px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-weight: 600;
+            border-radius: 6px;
+            color: #64748b;
+            font-size: 0.8rem;
+        }
+
+        .level-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .stats-bar {
+            display: flex;
+            gap: 20px;
+            background: white;
+            padding: 10px 20px;
+            border-radius: 50px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+
+        /* Grid Logic */
+        .grid {
+            display: grid;
+            gap: 6px;
+            perspective: 1000px;
+        }
+
+        .card {
+            width: 50px;
+            height: 60px;
+            cursor: pointer;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.4s;
+        }
+
+        /* Empty slot for the 35th card in Medium */
+        .card.empty {
+            cursor: default;
+            visibility: hidden;
+        }
+
+        @media (min-width: 600px) {
+            .card { width: 65px; height: 80px; }
+        }
+
+        .card.flipped { transform: rotateY(180deg); }
+
+        .card-front, .card-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card-front { background: var(--primary); color: white; font-size: 1.2rem; }
+        .card-back { 
+            background: white; 
+            transform: rotateY(180deg); 
+            border: 2px solid var(--primary); 
+            font-size: 1.4rem; 
+        }
+
+        .btn-reset {
+            margin-top: 15px;
+            padding: 10px 25px;
+            background: var(--text);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>MEMORY PRO</h1>
+        <div class="level-selector">
+            <button class="level-btn active" onclick="changeLevel('easy', this)">4x5 Easy</button>
+            <button class="level-btn" onclick="changeLevel('medium', this)">5x7 Med</button>
+            <button class="level-btn" onclick="changeLevel('hard', this)">5x8 Hard</button>
+        </div>
+    </div>
+
+    <div class="stats-bar">
+        <span>Moves: <span id="moves">0</span></span>
+        <span>Time: <span id="timer">0</span>s</span>
+        <span style="color: #10b981;">Best: <span id="best">--</span></span>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <button class="btn-reset" onclick="initGame()">Restart</button>
+
+    <script>
+        const emojis = ['🚀','🎨','💻','⚡','🌈','💎','🍎','🔥','👻','🍀','🎸','🍔','🍦','🏀','🌙','☀️','🎈','🕹️','🦄','🐱'];
+        let currentLevel = 'easy';
+        let flippedCards = [];
+        let matchedPairs = 0;
+        let moves = 0;
+        let timer = 0;
+        let interval;
+        let isLocking = false;
+
+        const config = {
+            easy: { r: 4, c: 5, pairs: 10 },
+            medium: { r: 7, c: 5, pairs: 17 }, // 34 cards + 1 empty
+            hard: { r: 8, c: 5, pairs: 20 }
+        };
+
+        function changeLevel(level, btn) {
+            document.querySelectorAll('.level-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentLevel = level;
+            initGame();
+        }
+
+        function initGame() {
+            clearInterval(interval);
+            timer = 0; moves = 0; matchedPairs = 0; flippedCards = []; isLocking = false;
+            document.getElementById('timer').innerText = '0';
+            document.getElementById('moves').innerText = '0';
+            
+            const best = localStorage.getItem(`best_${currentLevel}`);
+            document.getElementById('best').innerText = best ? best + 's' : '--';
+
+            const { r, c, pairs } = config[currentLevel];
+            const grid = document.getElementById('grid');
+            grid.style.gridTemplateColumns = `repeat(${c}, 1fr)`;
+
+            let deck = [];
+            let gameEmojis = emojis.slice(0, pairs);
+            deck = [...gameEmojis, ...gameEmojis].sort(() => Math.random() - 0.5);
+
+            grid.innerHTML = '';
+            
+            // For Medium (35 slots), add an empty space at index 17 (the middle)
+            let cardCount = r * c;
+            let deckIndex = 0;
+
+            for (let i = 0; i < cardCount; i++) {
+                const card = document.createElement('div');
+                
+                if (currentLevel === 'medium' && i === 17) {
+                    card.classList.add('card', 'empty');
+                } else {
+                    card.classList.add('card');
+                    const emoji = deck[deckIndex++];
+                    card.innerHTML = `<div class="card-front">?</div><div class="card-back">${emoji}</div>`;
+                    card.dataset.value = emoji;
+                    card.addEventListener('click', flipCard);
+                }
+                grid.appendChild(card);
+            }
+            startTimer();
+        }
+
+        function flipCard() {
+            if (isLocking || this.classList.contains('flipped')) return;
+            this.classList.add('flipped');
+            flippedCards.push(this);
+            if (flippedCards.length === 2) {
+                moves++;
+                document.getElementById('moves').innerText = moves;
+                checkMatch();
+            }
+        }
+
+        function checkMatch() {
+            isLocking = true;
+            const [c1, c2] = flippedCards;
+            if (c1.dataset.value === c2.dataset.value) {
+                matchedPairs++;
+                flippedCards = [];
+                isLocking = false;
+                if (matchedPairs === config[currentLevel].pairs) {
+                    clearInterval(interval);
+                    const key = `best_${currentLevel}`;
+                    if (!localStorage.getItem(key) || timer < localStorage.getItem(key)) {
+                        localStorage.setItem(key, timer);
+                    }
+                    setTimeout(() => alert(`Win! Time: ${timer}s`), 500);
+                }
+            } else {
+                setTimeout(() => {
+                    c1.classList.remove('flipped');
+                    c2.classList.remove('flipped');
+                    flippedCards = [];
+                    isLocking = false;
+                }, 700);
+            }
+        }
+
+        function startTimer() {
+            interval = setInterval(() => {
+                timer++;
+                document.getElementById('timer').innerText = timer;
+            }, 1000);
+        }
+
+        initGame();
+    </script>
+</body>
+</html>
